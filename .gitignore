@@ -1,11 +1,9 @@
 .idea
 validations
 venv/
-server/game_logs/*.json
 __init__.py
 __pycache__
 test.py
-server/outs.txt
-src/python_client/images
-src/server/game_logs
-src/server/config.json
+src/server/outs.txt
+src/server/game_logs/*.json
+src/python_client/images/*.jpg

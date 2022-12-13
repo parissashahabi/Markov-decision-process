@@ -7,7 +7,8 @@ class MDPSolver:
                  barbed_cells_probabilities, teleport_cells_probabilities):
         self.problem = MDP(grid, reward, count, normal_cells_probabilities, slider_cells_probabilities,
                            barbed_cells_probabilities, teleport_cells_probabilities)
-        self.solver = ValueIteration(self.problem.reward_function, self.problem.transition_model, gamma=0.9)
+        self.solver = ValueIteration(self.problem.reward_function, self.problem.transition_model, self.problem.map,
+                                     gamma=0.9)
 
     def train(self):
         self.solver.train()

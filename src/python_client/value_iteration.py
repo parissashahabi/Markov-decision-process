@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 
 class ValueIteration:
-    def __init__(self, reward_function, transition_model, gamma):
+    def __init__(self, reward_function, transition_model, grid, gamma):
         self.num_states = transition_model.shape[0]
         self.num_actions = transition_model.shape[1]
         self.reward_function = np.nan_to_num(reward_function)
@@ -11,10 +11,20 @@ class ValueIteration:
         self.gamma = gamma
         self.values = np.zeros(self.num_states)
         self.policy = None
+        self.map = grid
+        self.num_rows = grid.shape[0]
+        self.num_cols = grid.shape[1]
+        self.state_space = {}
 
-    def one_iteration(self):
+    def get_state_from_pos(self, pos):
+        return pos[0] * self.num_cols + pos[1]
+
+    def get_pos_from_state(self, state):
+        return state // self.num_cols, state % self.num_cols
+
+    def one_iteration(self, state_space):
         delta = 0
-        for s in range(self.num_states):
+        for s in state_space:
             temp = self.values[s]
             v_list = np.zeros(self.num_actions)
             for a in range(self.num_actions):
@@ -52,23 +62,42 @@ class ValueIteration:
                 pi[s] = 8
             else:
                 pi[s] = np.random.choice(max_index)
-            #     lt4 = [item for item in max_index if item < 4]
-            #     if len(lt4) > 0:
-            #         pi[s] = np.random.choice(lt4)
-            #     else:
-            #         pi[s] = np.random.choice(max_index)
 
         return pi.astype(int)
 
+    def get_state_space(self, state):
+        new_map_states = set()
+        r, c = self.get_pos_from_state(state)
+        for x in [-2, -1, 0, 1, 2]:
+            for y in [-2, -1, 0, 1, 2]:
+                if x < 0:
+                    if y < 0:
+                        s = self.get_state_from_pos((max(r+x, 0), max(c+y, 0)))
+                    else:
+                        s = self.get_state_from_pos((max(r + x, 0), min(c + y, self.num_cols - 1)))
+                else:
+                    if y < 0:
+                        s = self.get_state_from_pos((min(r + x, self.num_rows - 1), max(c+y, 0)))
+                    else:
+                        s = self.get_state_from_pos((min(r + x, self.num_rows - 1), min(c + y, self.num_cols - 1)))
+                new_map_states.add(s)
+        self.state_space[state] = list(new_map_states)
+
     def train(self, tol=1e-3, plot=True):
-        epoch = 0
-        delta = self.one_iteration()
+        for s in range(self.num_states):
+            self.get_state_space(s)
+        state = 0
+        delta = self.one_iteration(self.state_space[state])
         delta_history = [delta]
-        while delta > tol:
-            epoch += 1
-            delta = self.one_iteration()
+        flag = False
+        while True:
+            state += 1
+            if state == self.num_states:
+                flag = True
+                state = 0
+            delta = self.one_iteration(self.state_space[state])
             delta_history.append(delta)
-            if delta < tol:
+            if delta < tol and flag is True:
                 break
         self.policy = self.get_policy()
 

@@ -1,238 +1,215 @@
-import pandas as pd
-import numpy as np
-from mdp_solver import MDPSolver
 from base import BaseAgent, Action
-from time import time
-from utils import GridColoring, GoalsPermutation, Gem, powerset
-import itertools
+import numpy as np
+from utils import get_action
+from numpy import asarray
+from numpy import savetxt
 
-GEM_SEQUENCE_SCORE = [
-    [50, 0, 0, 0],
-    [50, 200, 100, 0],
-    [100, 50, 200, 100],
-    [50, 100, 50, 200],
-    [250, 50, 100, 50]
-]
 
-REWARD = {'normal_cell': -1.0, 'forbidden_cell': np.NAN, 'barbed': -20.0, 'teleport': 0.0, 'key': 85.0, 'first_gem': 300.0}
+def init_q(s, a, init_type="ones"):
+    if init_type == "ones":
+        return np.ones((s, a))
+    elif init_type == "random":
+        return np.random.random((s, a))
+    elif init_type == "zeros":
+        return np.zeros((s, a))
+
+
+def epsilon_greedy(q_table, epsilon, num_actions, s, train=False):
+    if train or np.random.rand() < epsilon:
+        print('argmax')
+        return np.argmax(q_table[s, :])
+    else:
+        print('random')
+        return np.random.randint(0, num_actions)
 
 
 class Agent(BaseAgent):
-    def __init__(self):
+    def __init__(self, alpha=0.01, gamma=0.999, epsilon=0.9):
         super(Agent, self).__init__()
-        self.num_states = self.grid_width * self.grid_height
-        self.policy = None
-        self.finished = False
-        self.last_gem = 0
-        self.agent = (0, 0)
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.state = 15
+        self.n_actions = 9
+        self.n_states = None
+        self.action = None
+        self.total_reward = 0
+        self.last_score = 0
+        self.reward_history = []
+        self.q_table = None
+        self.n_gems = 0
         self.gems_locations = []
-        self.keys_locations = []
-        self.gem_nodes = []
-        self.required_keys = []
-        self.keys = set()
-        self.initial_grid = None
-        self.normal_cells_probabilities = pd.DataFrame(self.probabilities['normal']).transpose().to_numpy()
-        self.slider_cells_probabilities = pd.DataFrame(self.probabilities['slider']).transpose().to_numpy()
-        self.barbed_cells_probabilities = pd.DataFrame(self.probabilities['barbed']).transpose().to_numpy()
-        self.teleport_cells_probabilities = pd.DataFrame(self.probabilities['teleport']).transpose().to_numpy()
+        self.done = False
 
-    def get_reward(self):
-        # TODO -> E, teleport (13)
-        reward = {0: REWARD['normal_cell'], 5: REWARD['forbidden_cell'], 12: REWARD['barbed'], 13: REWARD['teleport']}
-        if self.last_gem == 0:
-            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, ['W'])
-            colored_grid.bfs(0, 0)
-            goals_permutation = GoalsPermutation(self.gem_nodes, colored_grid, self.grid, self.grid_height,
-                                                 self.grid_width, self.last_gem, self.agent, self.max_turn_count, self.turn_count, 10)
-            permutation = goals_permutation.generate_actions()
-            if permutation == (None, None):
-                self.finished = True
-                return {}
-            valuable_gem = int(permutation.sequence[0].type)
-            reward[valuable_gem] = REWARD['first_gem']
-            gems = [1, 2, 3, 4]
-            gems.remove(valuable_gem)
-            for gem_type in gems:
-                reward[gem_type] = float(GEM_SEQUENCE_SCORE[self.last_gem][gem_type - 1])
-        else:
-            for gem_type in [1, 2, 3, 4]:
-                reward[gem_type] = float(GEM_SEQUENCE_SCORE[self.last_gem][gem_type - 1])
-        door_allowed = []
-        for key in list(self.keys):
-            if key == 9:
-                door_allowed.append(6)
-            elif key == 10:
-                door_allowed.append(7)
-            elif key == 11:
-                door_allowed.append(8)
-        for door_type in [6, 7, 8]:
-            if door_type in door_allowed:
-                reward[door_type] = REWARD['normal_cell']
-                continue
-            reward[door_type] = REWARD['forbidden_cell']
-        for key_type in [9, 10, 11]:
-            if key_type in self.required_keys and key_type not in list(self.keys):
-                reward[key_type] = REWARD['key']
-            else:
-                reward[key_type] = REWARD['normal_cell']
-        return reward
+    def get_gems_locations(self):
+        gems = []
+        for x in range(self.grid_height):
+            for y in range(self.grid_width):
+                if self.grid[x][y] in ['1', '2', '3', '4']:
+                    gems.append((x, y))
+        return gems
 
-    def map_required_keys_to_nums(self):
-        for key in self.required_keys:
-            if key == 'g':
-                key_index = self.required_keys.index(key)
-                self.required_keys[key_index] = 9
-            elif key == 'r':
-                key_index = self.required_keys.index(key)
-                self.required_keys[key_index] = 10
-            elif key == 'y':
-                key_index = self.required_keys.index(key)
-                self.required_keys[key_index] = 11
+    def observation_space(self):
+        return self.grid_height * self.grid_width * (2 ** len(self.gems_locations))
 
     def get_state_from_pos(self, pos):
         return pos[0] * self.grid_width + pos[1]
 
-    def find_sliders(self):
-        keys, gems, gem_nodes = [], [], []
+    def get_agent_location(self):
+        for r in range(self.grid_height):
+            for c in range(self.grid_width):
+                if 'A' in self.grid[r][c]:
+                    return self.get_state_from_pos((r, c))
+
+    def percept(self, s, a, s_, reward):
+        a_ = np.argmax(self.q_table[s_, :])
+        if self.done:
+            self.q_table[s, a] += self.alpha * (reward - self.q_table[s, a])
+        else:
+            self.q_table[s, a] += self.alpha * (reward + (self.gamma * self.q_table[s_, a_]) - self.q_table[s, a])
+        self.state, self.action = s_, a_
+
+    def reset(self):
+        self.state = 15
+        self.total_reward = 0
+        self.last_score = 0
+        self.done = False
+
+    def step(self):
+        gems_state = ''
+        reward = self.agent_scores[0] - self.last_score
+        agent_location = self.get_agent_location()
+        new_gems_locations = self.get_gems_locations()
+        for gem in self.gems_locations:
+            if gem in new_gems_locations:
+                gems_state += '1'
+            else:
+                gems_state += '0'
+        s_ = agent_location * (2 ** self.n_gems) + int(gems_state, 2)
+        if len(new_gems_locations) == 0 or self.max_turn_count == self.turn_count:
+            self.done = True
+        return s_, reward
+
+    def do_turn(self) -> Action:
+        # print(f'-------------------turn count {self.turn_count}---------------------')
+        if self.turn_count == 1:
+            self.reset()
+            # print(f'reset result: state {self.state} total reward {self.total_reward}')
+            self.action = epsilon_greedy(self.q_table, self.epsilon, self.n_actions, self.state)
+            # print(f'q table {self.q_table}, action {self.action}')
+        else:
+            s_, reward = self.step()
+            # print(f's_ {s_}, reward {reward}')
+            self.total_reward += reward
+            self.percept(self.state, self.action, s_, reward)
+            # print(f'state {self.state}, action {self.action}')
+            self.last_score = self.agent_scores[0]
+            if self.done:
+                print(f'total reward {self.total_reward}')
+                self.reward_history.append(self.total_reward)
+                # savetxt('reward_history1.csv', asarray([self.reward_history]), delimiter=',')
+        return get_action(self.action)
+
+
+class TestAgent(BaseAgent):
+    def __init__(self, alpha=0.01, gamma=0.999, epsilon=0.9):
+        super(TestAgent, self).__init__()
+        self.state = 15
+        self.n_actions = 9
+        self.n_states = None
+        self.action = None
+        self.total_reward = 0
+        self.last_score = 0
+        self.epsilon = None
+        self.reward_history = []
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.q_table = np.loadtxt('q_table1.txt')
+        self.n_gems = 0
+        self.gems_locations = []
+
+    def get_gems_locations(self):
+        gems = []
         for x in range(self.grid_height):
             for y in range(self.grid_width):
                 if self.grid[x][y] in ['1', '2', '3', '4']:
-                    gem = Gem(x, y)
-                    gem.type = self.grid[x][y]
-                    gem_nodes.append(gem)
                     gems.append((x, y))
-                elif self.grid[x][y] in ['g', 'r', 'y']:
-                    keys.append((x, y))
-        self.keys_locations = keys
-        self.gems_locations = gems
-        self.gem_nodes = gem_nodes
+        return gems
 
-    def get_action(self, state):
-        action = self.policy[state]
-        if action == 0:  # Up
-            return Action.UP
-        elif action == 1:  # Down
-            return Action.DOWN
-        elif action == 2:  # Left
-            return Action.LEFT
-        elif action == 3:  # Right
-            return Action.RIGHT
-        elif action == 4:  # Up Right
-            return Action.UP_RIGHT
-        elif action == 5:  # Up Left
-            return Action.UP_LEFT
-        elif action == 6:  # Down Right
-            return Action.DOWN_RIGHT
-        elif action == 7:  # Down Left
-            return Action.DOWN_LEFT
-        elif action == 8:  # NOOP
-            return Action.NOOP
+    def reset(self):
+        self.state = 15
+        self.total_reward = 0
+        self.last_score = 0
 
-    def get_policy(self):
-        self.find_required_keys()
-        state_space = self.get_state_space()
-        reward = self.get_reward()
-        if not reward:
-            self.policy = np.ones(self.num_states) * 8
-            return
-        mdp_solver = MDPSolver(self.grid, reward, self.turn_count, self.normal_cells_probabilities,
-                               self.slider_cells_probabilities, self.barbed_cells_probabilities,
-                               self.teleport_cells_probabilities, state_space, self.grid_width)
-        mdp_solver.train()
-        # mdp_solver.visualize_value_policy()
-        self.policy = mdp_solver.get_policy()
-
-    def get_agent_location(self):
+    def observation_space(self):
+        n_gems = 0
         for x in range(self.grid_height):
             for y in range(self.grid_width):
-                if 'A' in self.grid[x][y]:
-                    self.agent = (x, y)
+                if self.grid[x][y] in ['1', '2', '3', '4']:
+                    n_gems += 1
+        return self.grid_height * self.grid_width * (2 ** n_gems), n_gems
 
-    def update_last_gem(self):
-        last_gem_index = self.gems_locations.index(self.agent)
-        x, y = self.gems_locations[last_gem_index]
-        self.last_gem = int(self.initial_grid[x][y])
+    def get_state_from_pos(self, pos):
+        return pos[0] * self.grid_width + pos[1]
 
-    def update_reached_keys_list(self):
-        key_index = self.keys_locations.index(self.agent)
-        x, y = self.keys_locations[key_index]
-        if self.initial_grid[x][y] == 'g':
-            self.keys.add(9)
-        elif self.initial_grid[x][y] == 'r':
-            self.keys.add(10)
-        elif self.initial_grid[x][y] == 'y':
-            self.keys.add(11)
+    def get_pos_from_state(self, state):
+        return state // self.grid_width, state % self.grid_width
 
-    def get_state_space(self):
-        forbidden_cells = self.remove_keys_from(['W', 'G', 'R', 'Y'])
-        colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, forbidden_cells)
-        colored_grid.bfs(0, 0)
-        return colored_grid.available_cells
+    def get_agent_location(self):
+        for r in range(self.grid_height):
+            for c in range(self.grid_width):
+                if 'A' in self.grid[r][c]:
+                    return self.get_state_from_pos((r, c))
 
-    def first_round_operations(self):
-        # Initialize grid
-        self.initial_grid = self.grid
-
-        # Find gems and keys
-        self.find_sliders()
-
-    def remove_keys_from(self, lst):
-        for key in list(self.keys):
-            if key == 9:
-                lst.remove('G')
-            elif key == 10:
-                lst.remove('R')
-            elif key == 11:
-                lst.remove('Y')
-        return lst
-
-    def find_required_keys(self):
-        self.required_keys = []
-        keys = self.remove_keys_from(['G', 'Y', 'R'])
-        doors_subset = list(powerset(keys))
-        for i, subset in enumerate(doors_subset):
-            forbidden_cells = self.remove_keys_from(['W', 'G', 'R', 'Y'])
-            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, forbidden_cells)
-            colored_grid.bfs(self.agent[0], self.agent[1])
-            available_cells_without_any_key = colored_grid.available_cells
-            for door in subset:
-                forbidden_cells.remove(door)
-            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, forbidden_cells)
-            colored_grid.bfs(self.agent[0], self.agent[1])
-            available_cells_with_key = colored_grid.available_cells
-            difference = list(set(available_cells_with_key) - set(available_cells_without_any_key))
-            if available_cells_with_key != available_cells_without_any_key:
-                for cell in difference:
-                    if cell in self.gems_locations:
-                        for door in subset:
-                            if door.lower() not in self.required_keys:
-                                self.required_keys.append(door.lower())
-        self.map_required_keys_to_nums()
+    def step(self):
+        done = False
+        gems_state = ''
+        reward = self.agent_scores[0] - self.last_score
+        print(f'rewrad {reward}')
+        agent_location = self.get_agent_location()
+        print(f'agent loc {agent_location}')
+        new_gems_locations = self.get_gems_locations()
+        print(f'new gems loc {new_gems_locations}')
+        for gem in self.gems_locations:
+            if gem in new_gems_locations:
+                gems_state += '1'
+            else:
+                gems_state += '0'
+        print(gems_state, int(gems_state, 2))
+        s_ = agent_location * (2 ** self.n_gems) + int(gems_state, 2)
+        print(f's_ {s_}')
+        if len(new_gems_locations) == 0 or self.max_turn_count == self.turn_count:
+            print(f"WON")
+            done = True
+        return s_, reward, done
 
     def do_turn(self) -> Action:
-        start_time = int(round(time() * 1000))
-        if self.turn_count == 1:
-            self.first_round_operations()
-
-        self.get_agent_location()
-
-        # If the agent reaches a key/gem:
-        if self.agent in self.gems_locations or self.agent in self.keys_locations or self.turn_count == 1:
-            if self.turn_count != 1:
-                if self.agent in self.gems_locations:
-                    self.update_last_gem()
-                else:
-                    self.update_reached_keys_list()
-            self.find_sliders()
-            self.get_policy()
-
-        state = self.get_state_from_pos(self.agent)
-        action = self.get_action(state)
-        cur_time = int(round(time() * 1000)) - start_time
-        print(f'time {cur_time}')
-        return action
+        if self.turn_count != 1:
+            print(f'-------------------------turn count {self.turn_count}---------------------------------------')
+            self.state, r, d = self.step()
+            self.action = epsilon_greedy(self.q_table, 0, 9, self.state, train=True)
+            print(f"Chose action {self.action} for state {self.state}")
+            self.last_score = self.agent_scores[0]
+        return get_action(self.action)
 
 
 if __name__ == '__main__':
-    data = Agent().play()
+    agent = Agent()
+    agent.grid = np.loadtxt('test.txt', str)
+    agent.gems_locations = agent.get_gems_locations()
+    agent.n_states = agent.observation_space()
+    agent.n_gems = len(agent.gems_locations)
+    agent.q_table = init_q(agent.n_states, agent.n_actions, init_type="ones")
+    data = agent.play()
+    savetxt('reward_history.csv', asarray([agent.reward_history]), delimiter=',')
+    np.savetxt('q_table.txt', agent.q_table)
+
+    # test_agent = TestAgent()
+    # test_agent.grid = np.loadtxt('test.txt', str)
+    # test_agent.gems_locations = test_agent.get_gems_locations()
+    # test_agent.reset()
+    # test_agent.epsilon = 0
+    # test_agent.action = epsilon_greedy(test_agent.q_table, test_agent.epsilon, test_agent.n_actions, test_agent.state, train=True)
+    # data = test_agent.play()
     print("FINISH : ", data)

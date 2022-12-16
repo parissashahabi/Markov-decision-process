@@ -5,7 +5,7 @@ from numpy import loadtxt
 
 reward_history = loadtxt('reward_history.csv', delimiter=',')
 print(reward_history)
-epochs = 997
+epochs = 990
 total_reward_history = np.zeros(epochs)
 total_reward = 0
 
@@ -14,6 +14,7 @@ for i in range(epochs):
     total_reward += reward_episode
     reward_history[i] = reward_episode
     total_reward_history[i] = total_reward
+
 segment = 10
 fig, axes = plt.subplots(2, 1, figsize=(5, 4), dpi=200, sharex='all')
 axes[0].plot(np.arange(len(total_reward_history)), total_reward_history, alpha=0.7, color='#d62728')

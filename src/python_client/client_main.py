@@ -1,6 +1,6 @@
 from base import BaseAgent, Action
 import numpy as np
-from utils import get_action
+from utils import get_action, fetch_grid
 from numpy import asarray
 from numpy import savetxt
 
@@ -68,7 +68,7 @@ class Agent(BaseAgent):
             self.q_table[s, a] += self.alpha * (reward + (self.gamma * self.q_table[s_, a_]) - self.q_table[s, a])
 
     def reset(self):
-        self.state = (self.n_gems ** 2) - 1
+        self.state = (2 ** self.n_gems) - 1
         self.total_reward = 0
         self.last_score = 0
         self.done = False
@@ -151,7 +151,7 @@ class TestAgent(BaseAgent):
         self.state, self.action = s_, a_
 
     def reset(self):
-        self.state = (self.n_gems ** 2) - 1
+        self.state = (2 ** self.n_gems) - 1
         self.total_reward = 0
         self.last_score = 0
         self.done = False
@@ -181,22 +181,22 @@ class TestAgent(BaseAgent):
 
 if __name__ == '__main__':
     agent = Agent()
-    agent.grid = np.loadtxt('test.txt', str)
+    agent.grid = fetch_grid(agent.grid_height, agent.grid_width)
     agent.gems_locations = agent.get_gems_locations()
     agent.n_states = agent.observation_space()
     agent.n_gems = len(agent.gems_locations)
-    agent.state = (agent.n_gems ** 2) - 1
+    agent.state = (2 ** agent.n_gems) - 1
     agent.q_table = init_q(agent.n_states, agent.n_actions, init_type="ones")
     data = agent.play()
     savetxt('reward_history.csv', asarray([agent.reward_history]), delimiter=',')
     np.savetxt('q_table.txt', agent.q_table)
 
     # test_agent = TestAgent()
-    # test_agent.grid = np.loadtxt('test.txt', str)
+    # test_agent.grid = fetch_grid(test_agent.grid_height, test_agent.grid_width)
     # test_agent.q_table = np.loadtxt('q_table.txt')
     # test_agent.gems_locations = test_agent.get_gems_locations()
     # test_agent.n_gems = len(test_agent.gems_locations)
-    # test_agent.state = (test_agent.n_gems ** 2) - 1
+    # test_agent.state = (2 ** test_agent.n_gems) - 1
     # test_agent.reset()
     # test_agent.epsilon = 0
     # test_agent.action = epsilon_greedy(test_agent.q_table, test_agent.epsilon, test_agent.n_actions, test_agent.state, train=True)

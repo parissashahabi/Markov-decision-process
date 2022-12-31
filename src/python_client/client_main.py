@@ -27,6 +27,7 @@ class Agent(BaseAgent):
         self.agent = (0, 0)
         self.gems_locations = []
         self.keys_locations = []
+        self.teleports_locations = []
         self.gem_nodes = []
         self.required_keys = []
         self.keys = set()
@@ -37,8 +38,32 @@ class Agent(BaseAgent):
         self.barbed_cells_probabilities = pd.DataFrame(self.probabilities['barbed']).transpose().to_numpy()
         self.teleport_cells_probabilities = pd.DataFrame(self.probabilities['teleport']).transpose().to_numpy()
 
+    def find_teleports(self):
+        teleports = []
+        for x in range(self.grid_height):
+            for y in range(self.grid_width):
+                if self.grid[x][y] == 'T':
+                    teleports.append((x, y))
+        self.teleports_locations = teleports
+
+    def calculate_teleport_reward(self):
+        initial_colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells, False)
+        initial_colored_grid.bfs(0, 0)
+        agent_can_teleport = False
+        for teleport_loc in self.teleports_locations:
+            if teleport_loc in initial_colored_grid.available_cells:
+                agent_can_teleport = True
+        for teleport_loc in self.teleports_locations:
+            teleported_colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells, False)
+            teleported_colored_grid.bfs(teleport_loc[0], teleport_loc[1])
+            if self.agent not in teleported_colored_grid.available_cells:
+                for cell in teleported_colored_grid.available_cells:
+                    if cell in self.gems_locations and agent_can_teleport:
+                        REWARD['teleport'] = 50
+
     def get_reward(self):
-        # TODO -> E, teleport (13)
+        # TODO -> E
+        self.calculate_teleport_reward()
         reward = {0: REWARD['normal_cell'], 5: REWARD['forbidden_cell'], 12: REWARD['barbed'], 13: REWARD['teleport']}
         door_allowed = []
         for key in list(self.keys):
@@ -60,7 +85,7 @@ class Agent(BaseAgent):
                 reward[key_type] = REWARD['normal_cell']
 
         if self.last_gem == 0:
-            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells)
+            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells, False)
             colored_grid.bfs(0, 0)
             goals_permutation = GoalsPermutation(self.gem_nodes, colored_grid, self.grid, self.grid_height,
                                                  self.grid_width, self.last_gem, self.agent, self.max_turn_count, self.turn_count, 10)
@@ -169,7 +194,7 @@ class Agent(BaseAgent):
 
     def get_state_space(self):
         self.forbidden_cells = self.remove_keys_from(['W', 'G', 'R', 'Y'])
-        colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells)
+        colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells, True)
         colored_grid.bfs(0, 0)
         return colored_grid.available_cells
 
@@ -179,6 +204,9 @@ class Agent(BaseAgent):
 
         # Find gems and keys
         self.find_sliders()
+
+        # Find teleports
+        self.find_teleports()
 
     def remove_keys_from(self, lst):
         for key in list(self.keys):
@@ -196,12 +224,12 @@ class Agent(BaseAgent):
         doors_subset = list(powerset(keys))
         for i, subset in enumerate(doors_subset):
             forbidden_cells = self.remove_keys_from(['W', 'G', 'R', 'Y'])
-            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, forbidden_cells)
+            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, forbidden_cells, False)
             colored_grid.bfs(self.agent[0], self.agent[1])
             available_cells_without_any_key = colored_grid.available_cells
             for door in subset:
                 forbidden_cells.remove(door)
-            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, forbidden_cells)
+            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, forbidden_cells, False)
             colored_grid.bfs(self.agent[0], self.agent[1])
             available_cells_with_key = colored_grid.available_cells
             difference = list(set(available_cells_with_key) - set(available_cells_without_any_key))

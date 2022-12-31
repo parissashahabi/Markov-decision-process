@@ -31,6 +31,7 @@ class Agent(BaseAgent):
         self.required_keys = []
         self.keys = set()
         self.initial_grid = None
+        self.forbidden_cells = []
         self.normal_cells_probabilities = pd.DataFrame(self.probabilities['normal']).transpose().to_numpy()
         self.slider_cells_probabilities = pd.DataFrame(self.probabilities['slider']).transpose().to_numpy()
         self.barbed_cells_probabilities = pd.DataFrame(self.probabilities['barbed']).transpose().to_numpy()
@@ -39,24 +40,6 @@ class Agent(BaseAgent):
     def get_reward(self):
         # TODO -> E, teleport (13)
         reward = {0: REWARD['normal_cell'], 5: REWARD['forbidden_cell'], 12: REWARD['barbed'], 13: REWARD['teleport']}
-        if self.last_gem == 0:
-            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, ['W'])
-            colored_grid.bfs(0, 0)
-            goals_permutation = GoalsPermutation(self.gem_nodes, colored_grid, self.grid, self.grid_height,
-                                                 self.grid_width, self.last_gem, self.agent, self.max_turn_count, self.turn_count, 10)
-            permutation = goals_permutation.generate_actions()
-            if permutation == (None, None):
-                self.finished = True
-                return {}
-            valuable_gem = int(permutation.sequence[0].type)
-            reward[valuable_gem] = REWARD['first_gem']
-            gems = [1, 2, 3, 4]
-            gems.remove(valuable_gem)
-            for gem_type in gems:
-                reward[gem_type] = float(GEM_SEQUENCE_SCORE[self.last_gem][gem_type - 1])
-        else:
-            for gem_type in [1, 2, 3, 4]:
-                reward[gem_type] = float(GEM_SEQUENCE_SCORE[self.last_gem][gem_type - 1])
         door_allowed = []
         for key in list(self.keys):
             if key == 9:
@@ -75,6 +58,27 @@ class Agent(BaseAgent):
                 reward[key_type] = REWARD['key']
             else:
                 reward[key_type] = REWARD['normal_cell']
+
+        if self.last_gem == 0:
+            colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells)
+            colored_grid.bfs(0, 0)
+            goals_permutation = GoalsPermutation(self.gem_nodes, colored_grid, self.grid, self.grid_height,
+                                                 self.grid_width, self.last_gem, self.agent, self.max_turn_count, self.turn_count, 10)
+            permutation = goals_permutation.generate_actions()
+            if permutation == (None, None) or (len(permutation.sequence) == 1 and int(permutation.sequence[0].type) in [2, 3, 4]):
+                self.finished = True
+                for gem_type in [1, 2, 3, 4]:
+                    reward[gem_type] = REWARD['normal_cell']
+                return reward
+            valuable_gem = int(permutation.sequence[0].type)
+            reward[valuable_gem] = REWARD['first_gem']
+            gems = [1, 2, 3, 4]
+            gems.remove(valuable_gem)
+            for gem_type in gems:
+                reward[gem_type] = float(GEM_SEQUENCE_SCORE[self.last_gem][gem_type - 1])
+        else:
+            for gem_type in [1, 2, 3, 4]:
+                reward[gem_type] = float(GEM_SEQUENCE_SCORE[self.last_gem][gem_type - 1])
         return reward
 
     def map_required_keys_to_nums(self):
@@ -164,8 +168,8 @@ class Agent(BaseAgent):
             self.keys.add(11)
 
     def get_state_space(self):
-        forbidden_cells = self.remove_keys_from(['W', 'G', 'R', 'Y'])
-        colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, forbidden_cells)
+        self.forbidden_cells = self.remove_keys_from(['W', 'G', 'R', 'Y'])
+        colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells)
         colored_grid.bfs(0, 0)
         return colored_grid.available_cells
 

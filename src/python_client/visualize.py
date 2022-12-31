@@ -5,7 +5,7 @@ from numpy import loadtxt
 
 reward_history = loadtxt('reward_history.csv', delimiter=',')
 print(reward_history)
-epochs = 990
+epochs = 1055
 total_reward_history = np.zeros(epochs)
 total_reward = 0
 

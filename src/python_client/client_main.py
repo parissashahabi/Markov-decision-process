@@ -4,7 +4,6 @@ from mdp_solver import MDPSolver
 from base import BaseAgent, Action
 from time import time
 from utils import GridColoring, GoalsPermutation, Gem, powerset
-import itertools
 
 GEM_SEQUENCE_SCORE = [
     [50, 0, 0, 0],
@@ -48,7 +47,7 @@ class Agent(BaseAgent):
 
     def calculate_teleport_reward(self):
         initial_colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells, False)
-        initial_colored_grid.bfs(0, 0)
+        initial_colored_grid.bfs(0, 0)  # TODO: agent loc
         agent_can_teleport = False
         for teleport_loc in self.teleports_locations:
             if teleport_loc in initial_colored_grid.available_cells:
@@ -58,7 +57,7 @@ class Agent(BaseAgent):
             teleported_colored_grid.bfs(teleport_loc[0], teleport_loc[1])
             if self.agent not in teleported_colored_grid.available_cells:
                 for cell in teleported_colored_grid.available_cells:
-                    if cell in self.gems_locations and agent_can_teleport:
+                    if cell in self.gems_locations and agent_can_teleport:  # TODO: key
                         REWARD['teleport'] = 50
 
     def get_reward(self):

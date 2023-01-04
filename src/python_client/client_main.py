@@ -29,6 +29,7 @@ class Agent(BaseAgent):
         self.teleports_locations = []
         self.gem_nodes = []
         self.required_keys = []
+        self.required_keys_locations = set()
         self.keys = set()
         self.initial_grid = None
         self.forbidden_cells = []
@@ -45,9 +46,15 @@ class Agent(BaseAgent):
                     teleports.append((x, y))
         self.teleports_locations = teleports
 
+    def find_required_keys_locations(self):
+        for key in self.keys_locations:
+            if (self.grid[key[0]][key[1]] == 'g' and 9 in self.required_keys) or (self.grid[key[0]][key[1]] == 'r' and 10 in self.required_keys) or (self.grid[key[0]][key[1]] == 'y' and 11 in self.required_keys):
+                self.required_keys_locations.add(key)
+
     def calculate_teleport_reward(self):
+        self.find_required_keys_locations()
         initial_colored_grid = GridColoring(self.grid, self.grid_height, self.grid_width, self.forbidden_cells, False)
-        initial_colored_grid.bfs(0, 0)  # TODO: agent loc
+        initial_colored_grid.bfs(self.agent[0], self.agent[1])
         agent_can_teleport = False
         for teleport_loc in self.teleports_locations:
             if teleport_loc in initial_colored_grid.available_cells:
@@ -57,7 +64,7 @@ class Agent(BaseAgent):
             teleported_colored_grid.bfs(teleport_loc[0], teleport_loc[1])
             if self.agent not in teleported_colored_grid.available_cells:
                 for cell in teleported_colored_grid.available_cells:
-                    if cell in self.gems_locations and agent_can_teleport:  # TODO: key
+                    if (cell in self.gems_locations or cell in list(self.required_keys_locations)) and agent_can_teleport:
                         REWARD['teleport'] = 50
 
     def get_reward(self):
